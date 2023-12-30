@@ -1,61 +1,68 @@
 module Apps
 
-using ..Pkg
-import ..Pkg.Types: AppInfo, PackageSpec, Context
-
+using Pkg
+using Pkg.Types: AppInfo, PackageSpec, Context
 using TOML, UUIDs
 
+#############
+# Constants #
+#############
 
-#######
-# API #
-#######
+const APP_ENV_FOLDER = joinpath(homedir(), ".julia", "environments", "apps")
+const JULIA_BIN_PATH = joinpath(homedir(), ".julia", "bin")
 
+##################
+# Helper Methods #
+##################
 
-add(pkg::String) = add(PackageSpec(pkg))
-
-function add(pkg::PackageSpec)
+function create_temp_environment()
     tempenv = mktempdir()
     mkpath(tempenv)
-    Pkg.activate(tempenv) do
-        Pkg.add(pkg)
-
-        ctx = Context()
-        uuid = first(ctx.env.project.deps).second
-        pkg = ctx.env.manifest.deps[uuid]
-
-        sourcepath = Base.find_package(pkg.name)
-
-        project_file = joinpath(dirname(dirname(sourcepath)), "Project.toml")
-        if !isfile(project_file)
-            error("Project file not found: $project_file")
-        end
-
-        project = Pkg.Types.read_project(project_file)
-        if isempty(project.apps)
-            error("No apps found in Project.toml")
-        end
-
-        app_env_folder = joinpath(homedir(), ".julia", "environments", "apps")
-        mkpath(app_env_folder)
-        mv(tempenv, joinpath(app_env_folder, pkg.name))
-
-        write_app_manifest(pkg)
-        # Create project
-
-        for (_, app) in project.apps
-            # @info "Generating shim... for app $(app.name)"
-            generate_shim(pkg.name, app)
-        end
-    end
+    # TODO restore.
+    Pkg.activate(tempenv)
+    return tempenv
 end
 
-# rm, should remove environment and all apps
+function handle_project_file(sourcepath)
+    project_file = joinpath(dirname(dirname(sourcepath)), "Project.toml")
+    isfile(project_file) || error("Project file not found: $project_file")
 
+    project = Pkg.Types.read_project(project_file)
+    isempty(project.apps) && error("No apps found in Project.toml")
+    return project
+end
+
+function move_environment(tempenv, pkgname)
+    mkpath(APP_ENV_FOLDER)
+    mv(tempenv, joinpath(APP_ENV_FOLDER, pkgname))
+end
+
+##################
+# Main Functions #
+##################
+
+function add(pkg::String)
+    add(PackageSpec(pkg))
+end
+
+function add(pkg::PackageSpec)
+    tempenv = create_temp_environment()
+    Pkg.add(pkg)
+
+    ctx = Context()
+    uuid = first(ctx.env.project.deps).second
+    pkg = ctx.env.manifest.deps[uuid]
+
+    sourcepath = Base.find_package(pkg.name)
+    project = handle_project_file(sourcepath)
+
+    move_environment(tempenv, pkg.name)
+    write_app_manifest(pkg)
+    generate_shims_for_apps(pkg.name, project.apps)
+end
 
 function write_app_manifest(pkg)
-    # PidLock
-    app_manifest_path = joinpath(homedir(), ".julia", "environments", "apps", "AppManifest.toml")
-
+    app_manifest_path = joinpath(APP_ENV_FOLDER, "AppManifest.toml")
     manifest = Pkg.Types.read_manifest(app_manifest_path)
 
     manifest.deps[pkg.uuid] = pkg
@@ -63,10 +70,16 @@ function write_app_manifest(pkg)
     mktemp() do tmpfile, io
         Pkg.Types.write_manifest(io, manifest)
         close(io)
-        # TODO: Remove
         mv(tmpfile, app_manifest_path; force=true)
     end
 end
+
+function generate_shims_for_apps(pkgname, apps)
+    for (_, app) in apps
+        generate_shim(pkgname, app)
+    end
+end
+
 
 
 #########
