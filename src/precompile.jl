@@ -162,6 +162,6 @@ let
     end
 
     if Base.generating_output()
-        pkg_precompile()
+        # pkg_precompile()
     end
 end

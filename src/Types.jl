@@ -243,6 +243,12 @@ end
 Base.:(==)(t1::Compat, t2::Compat) = t1.val == t2.val
 Base.hash(t::Compat, h::UInt) = hash(t.val, h)
 
+struct AppInfo
+    name::String
+    julia_command::Union{String, Nothing}
+    command::Union{String, Nothing}
+    other::Dict{String,Any}
+end
 Base.@kwdef mutable struct Project
     other::Dict{String,Any} = Dict{String,Any}()
     # Fields
@@ -260,6 +266,7 @@ Base.@kwdef mutable struct Project
     exts::Dict{String,Union{Vector{String}, String}} = Dict{String,String}()
     extras::Dict{String,UUID} = Dict{String,UUID}()
     targets::Dict{String,Vector{String}} = Dict{String,Vector{String}}()
+    apps::Dict{String, AppInfo} = Dict{String, AppInfo}()
     compat::Dict{String,Compat} = Dict{String,Compat}()
 end
 Base.:(==)(t1::Project, t2::Project) = all(x -> (getfield(t1, x) == getfield(t2, x))::Bool, fieldnames(Project))
@@ -273,6 +280,8 @@ function project_resolve_hash(t::Project)
     return bytes2hex(sha1(seekstart(iob)))
 end
 
+
+
 Base.@kwdef mutable struct PackageEntry
     name::Union{String,Nothing} = nothing
     version::Union{VersionNumber,Nothing} = nothing
@@ -284,6 +293,8 @@ Base.@kwdef mutable struct PackageEntry
     weakdeps::Dict{String,UUID} = Dict{String,UUID}()
     exts::Dict{String,Union{Vector{String}, String}} = Dict{String,String}()
     uuid::Union{Nothing, UUID} = nothing
+    # Make a dict?
+    apps::Vector{AppInfo} = AppInfo[] # used by AppManifest.toml
     other::Union{Dict,Nothing} = nothing
 end
 Base.:(==)(t1::PackageEntry, t2::PackageEntry) = t1.name == t2.name &&
@@ -317,6 +328,7 @@ Base.empty!(m::Manifest) = empty!(m.deps)
 Base.values(m::Manifest) = values(m.deps)
 Base.keys(m::Manifest) = keys(m.deps)
 Base.haskey(m::Manifest, key) = haskey(m.deps, key)
+
 
 function Base.show(io::IO, pkg::PackageEntry)
     f = []

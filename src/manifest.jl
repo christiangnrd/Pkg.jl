@@ -81,6 +81,20 @@ function read_deps(raw::Dict{String, Any})::Dict{String,UUID}
     return deps
 end
 
+read_apps(::Nothing) = AppInfo[]
+read_apps(::Any) = pkgerror("Expected `apps` field to be either a list.")
+function read_apps(apps::AbstractVector)
+    appinfos = AppInfo[]
+    for app in apps
+        appinfo = AppInfo(app["name"]::String,
+                app["julia_command"]::String,
+                get(app, "command", nothing)::Union{String,Nothing},
+                app)
+        push!(appinfos, appinfo)
+    end
+    return appinfos
+end
+
 struct Stage1
     uuid::UUID
     entry::PackageEntry
@@ -180,6 +194,7 @@ function Manifest(raw::Dict{String, Any}, f_or_io::Union{String, IO})::Manifest
                     entry.uuid        = uuid
                     deps = read_deps(get(info::Dict, "deps", nothing)::Union{Nothing, Dict{String, Any}, Vector{String}})
                     weakdeps = read_deps(get(info::Dict, "weakdeps", nothing)::Union{Nothing, Dict{String, Any}, Vector{String}})
+                    entry.apps = read_apps(get(info::Dict, "apps", nothing)::Union{Nothing, Vector{Dict{String, Any}}})
                     entry.exts = get(Dict{String, String}, info, "extensions")
                 catch
                     # TODO: Should probably not unconditionally log something
@@ -299,6 +314,10 @@ function destructure(manifest::Manifest)::Dict
         # TODO: Write this inline
         if !isempty(entry.exts)
             entry!(new_entry, "extensions", entry.exts)
+        end
+
+        if !isempty(entry.apps)
+            entry!(new_entry, "apps", entry.apps)
         end
         if manifest.manifest_format.major == 1
             push!(get!(raw, entry.name, Dict{String,Any}[]), new_entry)
