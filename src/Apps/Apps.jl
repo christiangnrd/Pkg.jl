@@ -34,7 +34,8 @@ end
 
 function move_environment(tempenv, pkgname)
     mkpath(APP_ENV_FOLDER)
-    mv(tempenv, joinpath(APP_ENV_FOLDER, pkgname))
+    # TODO: remove force
+    mv(tempenv, joinpath(APP_ENV_FOLDER, pkgname); force=true)
 end
 
 ##################
@@ -53,8 +54,12 @@ function add(pkg::PackageSpec)
     uuid = first(ctx.env.project.deps).second
     pkg = ctx.env.manifest.deps[uuid]
 
+    @show pkg.apps
+
     sourcepath = Base.find_package(pkg.name)
     project = handle_project_file(sourcepath)
+
+    pkg.apps = project.apps
 
     move_environment(tempenv, pkg.name)
     write_app_manifest(pkg)
@@ -66,6 +71,8 @@ function write_app_manifest(pkg)
     manifest = Pkg.Types.read_manifest(app_manifest_path)
 
     manifest.deps[pkg.uuid] = pkg
+
+    @show pkg.apps
 
     mktemp() do tmpfile, io
         Pkg.Types.write_manifest(io, manifest)
@@ -114,7 +121,7 @@ function generate_bash_shim(pkgname, app, julia_executable_path::String)
     app_args=()
     sep_found=false
 
-    # First pass to check for --
+    # First pass to check for    --
     for arg in "\$@"; do
         if [ "\$arg" = "--" ]; then
             sep_found=true

@@ -1,0 +1,10 @@
+julia_version = "1.10.0"
+manifest_format = "2.0"
+project_hash = "622b0771bd04a762d64cbd1ce0fd355304a36eab"
+
+
+[[deps.Cthulhu]]
+git-tree-sha1 = "42df01693cfacf5599819a1f0bcc767c7759d0ab"
+uuid = "f68482b8-f384-11e8-15f7-abe071a5a75f"
+version = "2.9.6"
+apps = [{name = "App1", command = "--check-bounds=yes"}, {name = "App2", command = "--optimize=2"}]

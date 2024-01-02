@@ -316,6 +316,7 @@ function destructure(manifest::Manifest)::Dict
             entry!(new_entry, "extensions", entry.exts)
         end
 
+        @show entry.apps
         if !isempty(entry.apps)
             entry!(new_entry, "apps", entry.apps)
         end
