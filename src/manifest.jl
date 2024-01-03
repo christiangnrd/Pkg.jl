@@ -81,16 +81,15 @@ function read_deps(raw::Dict{String, Any})::Dict{String,UUID}
     return deps
 end
 
-read_apps(::Nothing) = AppInfo[]
-read_apps(::Any) = pkgerror("Expected `apps` field to be either a list.")
-function read_apps(apps::AbstractVector)
-    appinfos = AppInfo[]
-    for app in apps
-        appinfo = AppInfo(app["name"]::String,
+read_apps(::Nothing) = Dict{String, AppInfo}()
+read_apps(::Any) = pkgerror("Expected `apps` field to be a Dict")
+function read_apps(apps::Dict)
+    appinfos = Dict{String, AppInfo}()
+    for (appname, app) in apps
+        appinfo = AppInfo(appname::String,
                 app["julia_command"]::String,
-                get(app, "command", nothing)::Union{String,Nothing},
                 app)
-        push!(appinfos, appinfo)
+        appinfos[appinfo.name] = appinfo
     end
     return appinfos
 end
@@ -194,7 +193,7 @@ function Manifest(raw::Dict{String, Any}, f_or_io::Union{String, IO})::Manifest
                     entry.uuid        = uuid
                     deps = read_deps(get(info::Dict, "deps", nothing)::Union{Nothing, Dict{String, Any}, Vector{String}})
                     weakdeps = read_deps(get(info::Dict, "weakdeps", nothing)::Union{Nothing, Dict{String, Any}, Vector{String}})
-                    entry.apps = read_apps(get(info::Dict, "apps", nothing)::Union{Nothing, Vector{Dict{String, Any}}})
+                    entry.apps = read_apps(get(info::Dict, "apps", nothing)::Union{Nothing, Dict{String, Any}})
                     entry.exts = get(Dict{String, String}, info, "extensions")
                 catch
                     # TODO: Should probably not unconditionally log something
@@ -318,7 +317,11 @@ function destructure(manifest::Manifest)::Dict
 
         @show entry.apps
         if !isempty(entry.apps)
-            entry!(new_entry, "apps", entry.apps)
+            new_entry["apps"] = Dict{String,Any}()
+            for (appname, appinfo) in entry.apps
+                julia_command = @something appinfo.julia_command joinpath(Sys.BINDIR, "julia" * (Sys.iswindows() ? ".exe" : ""))
+                new_entry["apps"][appname] = Dict{String,Any}("julia_command" => julia_command)
+            end
         end
         if manifest.manifest_format.major == 1
             push!(get!(raw, entry.name, Dict{String,Any}[]), new_entry)

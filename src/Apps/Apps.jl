@@ -38,6 +38,23 @@ function move_environment(tempenv, pkgname)
     mv(tempenv, joinpath(APP_ENV_FOLDER, pkgname); force=true)
 end
 
+function write_app_manifest(pkg)
+    app_manifest_path = joinpath(APP_ENV_FOLDER, "AppManifest.toml")
+    manifest = Pkg.Types.read_manifest(app_manifest_path)
+
+    manifest.deps[pkg.uuid] = pkg
+
+    @show pkg.apps
+
+    mktemp() do tmpfile, io
+        Pkg.Types.write_manifest(io, manifest)
+        close(io)
+        mv(tmpfile, app_manifest_path; force=true)
+    end
+end
+
+
+
 ##################
 # Main Functions #
 ##################
@@ -54,8 +71,6 @@ function add(pkg::PackageSpec)
     uuid = first(ctx.env.project.deps).second
     pkg = ctx.env.manifest.deps[uuid]
 
-    @show pkg.apps
-
     sourcepath = Base.find_package(pkg.name)
     project = handle_project_file(sourcepath)
 
@@ -66,25 +81,26 @@ function add(pkg::PackageSpec)
     generate_shims_for_apps(pkg.name, project.apps)
 end
 
-function write_app_manifest(pkg)
-    app_manifest_path = joinpath(APP_ENV_FOLDER, "AppManifest.toml")
-    manifest = Pkg.Types.read_manifest(app_manifest_path)
-
-    manifest.deps[pkg.uuid] = pkg
-
-    @show pkg.apps
-
-    mktemp() do tmpfile, io
-        Pkg.Types.write_manifest(io, manifest)
-        close(io)
-        mv(tmpfile, app_manifest_path; force=true)
-    end
+function develop(pkg::String)
+    develop(PackageSpec(pkg))
 end
 
-function generate_shims_for_apps(pkgname, apps)
-    for (_, app) in apps
-        generate_shim(pkgname, app)
-    end
+function develop(pkg::PackageSpec)
+    # TODO, this should just download the package and instantiate its environment,
+    # not create a new environment.
+    tempenv = create_temp_environment()
+    Pkg.develop(pkg)
+
+    ctx = Context()
+    uuid = first(ctx.env.project.deps).second
+    pkg = ctx.env.manifest.deps[uuid]
+
+    sourcepath = Base.find_package(pkg.name)
+    project = handle_project_file(sourcepath)
+
+    pkg.apps = project.apps
+    write_app_manifest(pkg)
+    generate_shims_for_apps(pkg.name, project.apps, dirname(dirname(sourcepath)))
 end
 
 
@@ -93,118 +109,51 @@ end
 # Shims #
 #########
 
-function generate_shim(env, app::AppInfo, julia_executable_path::String=joinpath(Sys.BINDIR, "julia"))
-    if Sys.iswindows()
-        generate_windows_shim(env, app, julia_executable_path)
-    else
-        generate_bash_shim(env, app, julia_executable_path)
+function generate_shims_for_apps(pkgname, apps, env)
+    for (_, app) in apps
+        generate_shim(app, pkgname; env)
     end
 end
 
-
-function generate_bash_shim(pkgname, app, julia_executable_path::String)
-    filename = joinpath(homedir(), ".julia", "bin", app.name)
-    appcommand = app.command === nothing ? "" : app.command
+function generate_shim(app::AppInfo, pkgname; julia_executable_path::String=joinpath(Sys.BINDIR, "julia"), env=joinpath(homedir(), ".julia", "environments", "apps", pkgname))
+    filename = joinpath(homedir(), ".julia", "bin", app.name * (Sys.iswindows() ? ".bat" : ""))
     mkpath(dirname(filename))
-    script = """
-    #!/usr/bin/env bash
-    julia_executable=$julia_executable_path
-
-    # Check if julia_executable_path exists, if not, fall back to 'julia'
-    if [ ! -x "\$julia_executable" ]; then
-        # TODO: More actionable error message
-        echo "Warning: Julia executable not found at $julia_executable_path, falling back to 'julia'."
-        julia_executable="julia"
-    fi
-
-    julia_args=()
-    app_args=()
-    sep_found=false
-
-    # First pass to check for    --
-    for arg in "\$@"; do
-        if [ "\$arg" = "--" ]; then
-            sep_found=true
-            break
-        fi
-    done
-
-    # Depending on the presence of --, split the arguments
-    if [ "\$sep_found" = true ]; then
-        collecting_julia_args=true
-        for arg in "\$@"; do
-            if [ "\$arg" = "--" ]; then
-                collecting_julia_args=false
-                continue
-            fi
-            if [ "\$collecting_julia_args" = true ]; then
-                julia_args+=("\$arg")
-            else
-                app_args+=("\$arg")
-            fi
-        done
+    content = if Sys.iswindows()
+        windows_shim(pkgname, julia_executable_path, env)
     else
-        app_args=("\$@")
-    fi
-
-    JULIA_LOAD_PATH=$(homedir)/.julia/environments/apps/$(pkgname)
-    exec $julia_executable_path \\
-        --startup-file=no \\
-        $(appcommand) \\
-        "\${julia_args[@]}" \\
-        -m $(pkgname) \\
-        "\${app_args[@]}"
-    """
+        bash_shim(pkgname, julia_executable_path, env)
+    end
     open(filename, "w") do f
-        write(f, script)
+        write(f, content)
     end
-    chmod(filename, 0o755)  # Set execute permissions
+    if Sys.isunix()
+        chmod(filename, 0o755)
+    end
 end
 
-function generate_windows_shim(pkgname, app, julia_executable_path::String)
-    filename = joinpath(homedir(), ".julia", "bin", "$(app.name).bat")
-    appcommand = app.command === nothing ? "" : app.command
-    mkpath(dirname(filename))
-    script = """
+
+function bash_shim(pkgname, julia_executable_path::String, env)
+    return """
+        #!/usr/bin/env bash
+
+        export JULIA_LOAD_PATH=$(repr(env))
+        exec $julia_executable_path \\
+            --startup-file=no \\
+            -m $(pkgname) \\
+            "\$@"
+        """
+end
+
+function windows_shim(pkgname, julia_executable_path::String, env)
+    return """
         @echo off
-        set julia_executable=$julia_executable_path
-
-        rem Check if julia_executable_path exists, if not, fall back to 'julia'
-        if not exist "%julia_executable%" (
-            echo Warning: Julia executable not found at $julia_executable_path, falling back to 'julia'
-            set julia_executable=julia
-        )
-
-        setlocal enabledelayedexpansion
-        set "julia_args="
-        set "app_args="
-        set "sep_found=false"
-
-        :arg_loop
-        if "%~1"=="" goto end_arg_loop
-        if "%~1"=="--" set "sep_found=true" & shift & goto arg_loop
-        if "!sep_found!"=="false" (
-            set "julia_args=!julia_args! %~1"
-        ) else (
-            set "app_args=!app_args! %~1"
-        )
-        shift
-        goto arg_loop
-        :end_arg_loop
-
-        set JULIA_LOAD_PATH=%HOMEDRIVE%%HOMEPATH%\\.julia\\environments\\apps\\$(pkg.name)
+        set JULIA_LOAD_PATH=$(repr(env))
 
         $julia_executable_path ^
             --startup-file=no ^
-            $(appcommand) ^
-            !julia_args! ^
             -m $(pkgname) ^
-            !app_args!
-    """
-    open(filename, "w") do f
-        write(f, script)
-    end
-    println("Generated Windows shim for: ", app.name)
+            %*
+        """
 end
 
 

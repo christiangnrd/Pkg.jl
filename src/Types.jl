@@ -246,7 +246,6 @@ Base.hash(t::Compat, h::UInt) = hash(t.val, h)
 struct AppInfo
     name::String
     julia_command::Union{String, Nothing}
-    command::Union{String, Nothing}
     other::Dict{String,Any}
 end
 Base.@kwdef mutable struct Project
@@ -294,7 +293,7 @@ Base.@kwdef mutable struct PackageEntry
     exts::Dict{String,Union{Vector{String}, String}} = Dict{String,String}()
     uuid::Union{Nothing, UUID} = nothing
     # Make a dict?
-    apps::Vector{AppInfo} = AppInfo[] # used by AppManifest.toml
+    apps::Dict{String, AppInfo} = Dict{String, AppInfo}() # used by AppManifest.toml
     other::Union{Dict,Nothing} = nothing
 end
 Base.:(==)(t1::PackageEntry, t2::PackageEntry) = t1.name == t2.name &&
@@ -306,7 +305,8 @@ Base.:(==)(t1::PackageEntry, t2::PackageEntry) = t1.name == t2.name &&
     t1.deps == t2.deps &&
     t1.weakdeps == t2.weakdeps &&
     t1.exts == t2.exts &&
-    t1.uuid == t2.uuid
+    t1.uuid == t2.uuid &&
+    t1.apps == t2.apps
     # omits `other`
 Base.hash(x::PackageEntry, h::UInt) = foldr(hash, [x.name, x.version, x.path, x.pinned, x.repo, x.tree_hash, x.deps, x.weakdeps, x.exts, x.uuid], init=h)  # omits `other`
 
