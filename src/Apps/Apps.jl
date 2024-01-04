@@ -2,6 +2,7 @@ module Apps
 
 using Pkg
 using Pkg.Types: AppInfo, PackageSpec, Context
+using Pkg.Operations: print_single
 using TOML, UUIDs
 
 #############
@@ -9,6 +10,7 @@ using TOML, UUIDs
 #############
 
 const APP_ENV_FOLDER = joinpath(homedir(), ".julia", "environments", "apps")
+const APP_MANIFEST_FILE = joinpath(APP_ENV_FOLDER, "AppManifest.toml")
 const JULIA_BIN_PATH = joinpath(homedir(), ".julia", "bin")
 
 ##################
@@ -38,19 +40,10 @@ function move_environment(tempenv, pkgname)
     mv(tempenv, joinpath(APP_ENV_FOLDER, pkgname); force=true)
 end
 
-function write_app_manifest(pkg)
-    app_manifest_path = joinpath(APP_ENV_FOLDER, "AppManifest.toml")
-    manifest = Pkg.Types.read_manifest(app_manifest_path)
-
+function update_app_manifest(pkg)
+    manifest = Pkg.Types.read_manifest(APP_MANIFEST_FILE)
     manifest.deps[pkg.uuid] = pkg
-
-    @show pkg.apps
-
-    mktemp() do tmpfile, io
-        Pkg.Types.write_manifest(io, manifest)
-        close(io)
-        mv(tmpfile, app_manifest_path; force=true)
-    end
+    Pkg.Types.write_manifest(manifest, APP_MANIFEST_FILE)
 end
 
 
@@ -77,8 +70,8 @@ function add(pkg::PackageSpec)
     pkg.apps = project.apps
 
     move_environment(tempenv, pkg.name)
-    write_app_manifest(pkg)
-    generate_shims_for_apps(pkg.name, project.apps)
+    update_app_manifest(pkg)
+    generate_shims_for_apps(pkg.name, project.apps, dirname(dirname(sourcepath)))
 end
 
 function develop(pkg::String)
@@ -99,8 +92,63 @@ function develop(pkg::PackageSpec)
     project = handle_project_file(sourcepath)
 
     pkg.apps = project.apps
-    write_app_manifest(pkg)
+    update_app_manifest(pkg)
     generate_shims_for_apps(pkg.name, project.apps, dirname(dirname(sourcepath)))
+end
+
+function status()
+    manifest = Pkg.Types.read_manifest(joinpath(APP_ENV_FOLDER, "AppManifest.toml"))
+    deps = Pkg.Operations.load_manifest_deps(manifest)
+    for dep in deps
+        info = manifest.deps[dep.uuid]
+        printstyled("[", string(dep.uuid)[1:8], "] "; color = :light_black)
+        print_single(stdout, dep)
+        single_app = length(info.apps) == 1
+        if !single_app
+            println()
+        else
+            print(":")
+        end
+        for (appname, appinfo) in info.apps
+            printstyled("  $(appname) $(appinfo.julia_command) \n", color=:green)
+        end
+    end
+end
+
+function free()
+
+end
+
+function rm(pkg_or_app)
+    manifest = Pkg.Types.read_manifest(joinpath(APP_ENV_FOLDER, "AppManifest.toml"))
+    dep_idx = findfirst(dep -> dep.name == pkg_or_app, manifest.deps)
+    if dep_idx !== nothing
+        dep = manifest.deps[dep_idx]
+        @info "Deleted all apps for package $(dep.name)"
+        delete!(manifest.deps, dep.uuid)
+        for (appname, appinfo) in dep.apps
+            @info "Deleted $(appname)"
+            Base.rm(joinpath(JULIA_BIN_PATH, appname); force=true)
+        end
+        Base.rm(joinpath(APP_ENV_FOLDER, dep.name); recursive=true)
+    else
+        for (uuid, pkg) in manifest.deps
+            app_idx = findfirst(app -> app.name == pkg_or_app, pkg.apps)
+            if app_idx !== nothing
+                app = pkg.apps[app_idx]
+                @info "Deleted app $(app.name)"
+                delete!(pkg.apps, app.name)
+                Base.rm(joinpath(JULIA_BIN_PATH, app.name); force=true)
+            end
+            if isempty(pkg.apps)
+                delete!(manifest.deps, uuid)
+                Base.rm(joinpath(APP_ENV_FOLDER, pkg.name); recursive=true)
+            end
+        end
+    end
+
+    Pkg.Types.write_manifest(manifest, APP_MANIFEST_FILE)
+    return
 end
 
 

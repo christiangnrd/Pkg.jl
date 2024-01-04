@@ -62,11 +62,11 @@ include("Versions.jl")
 include("Registry/Registry.jl")
 include("Resolve/Resolve.jl")
 include("Types.jl")
-include("Apps/Apps.jl")
 include("BinaryPlatforms_compat.jl")
 include("Artifacts.jl")
 include("Operations.jl")
 include("API.jl")
+include("Apps/Apps.jl")
 include("REPLMode/REPLMode.jl")
 
 import .REPLMode: @pkg_str
