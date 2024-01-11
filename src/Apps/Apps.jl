@@ -5,6 +5,7 @@ using Pkg.Types: AppInfo, PackageSpec, Context, EnvCache, PackageEntry, handle_r
 using Pkg.Operations: print_single, source_path
 using Pkg.API: handle_package_input!
 using TOML, UUIDs
+import Pkg.Registry
 
 #############
 # Constants #
@@ -31,7 +32,7 @@ function handle_project_file(sourcepath)
     isfile(project_file) || error("Project file not found: $project_file")
 
     project = Pkg.Types.read_project(project_file)
-    isempty(project.apps) && error("No apps found in Project.toml")
+    isempty(project.apps) && error("No apps found in Project.toml for package $(project.name) at version $(project.version)")
     return project
 end
 
@@ -83,17 +84,49 @@ function add(pkg::PackageSpec)
 
     ctx = app_context()
 
-    @assert pkg.repo !== nothing
+    if pkg.repo.source !== nothing || pkg.repo.rev !== nothing
+        entry = Pkg.API.manifest_info(ctx.env.manifest, pkg.uuid)
+        pkg = Pkg.Operations.update_package_add(ctx, pkg, entry, false)
+        new = handle_repo_add!(ctx, pkg)
+    else
+        pkgs = [pkg]
+        Pkg.Operations.registry_resolve!(ctx.registries, pkgs)
+        Pkg.Operations.ensure_resolved(ctx, ctx.env.manifest, pkgs, registry=true)
 
-    entry = Pkg.API.manifest_info(ctx.env.manifest, pkg.uuid)
-    pkg = Pkg.Operations.update_package_add(ctx, pkg, entry, false)
-    new = handle_repo_add!(ctx, pkg)
+        # Get the latest version from registry...
+        max_v = nothing
+        tree_hash = nothing
+        for reg in ctx.registries
+            if get(reg, pkg.uuid, nothing) !== nothing
+                reg_pkg = get(reg, pkg.uuid, nothing)
+                reg_pkg === nothing && continue
+                pkg_info = Registry.registry_info(reg_pkg)
+                for (version, info) in pkg_info.version_info
+                    info.yanked && continue
+                    if pkg.version isa VersionNumber
+                        pkg.version == version || continue
+                    else
+                        version in pkg.version || continue
+                    end
+                    if max_v === nothing || version > max_v
+                        max_v = version
+                        tree_hash = info.git_tree_sha1
+                    end
+                end
+            end
+        end
+        if max_v === nothing
+            error("Suitable package version for $(pkg.name) not found in any registries.")
+        end
+        pkg.version = max_v
+        pkg.tree_hash = tree_hash
+
+        new_apply = Pkg.Operations.download_source(ctx, pkgs)
+    end
 
     sourcepath = source_path(ctx.env.manifest_file, pkg)
-    @show sourcepath
     project = handle_project_file(sourcepath)
 
-    @show project
 
     # TODO: Type stab
     #appdeps = get(project, "appdeps", Dict())
@@ -109,6 +142,8 @@ function add(pkg::PackageSpec)
 
     Pkg.activate(joinpath(APP_ENV_FOLDER, pkg.name))
     Pkg.instantiate()
+
+    # TODO: Call build on the package if it was freshly installed?
 
     # Create the new package env.
     entry = PackageEntry(;apps = project.apps, name = pkg.name, version = project.version, tree_hash = pkg.tree_hash, path = pkg.path, repo = pkg.repo, uuid=pkg.uuid)

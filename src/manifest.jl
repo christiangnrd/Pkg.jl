@@ -315,7 +315,6 @@ function destructure(manifest::Manifest)::Dict
             entry!(new_entry, "extensions", entry.exts)
         end
 
-        @show entry.apps
         if !isempty(entry.apps)
             new_entry["apps"] = Dict{String,Any}()
             for (appname, appinfo) in entry.apps
