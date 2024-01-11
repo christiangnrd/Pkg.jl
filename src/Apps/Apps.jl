@@ -1,8 +1,9 @@
 module Apps
 
 using Pkg
-using Pkg.Types: AppInfo, PackageSpec, Context
-using Pkg.Operations: print_single
+using Pkg.Types: AppInfo, PackageSpec, Context, EnvCache, PackageEntry, handle_repo_add!, write_manifest, write_project
+using Pkg.Operations: print_single, source_path
+using Pkg.API: handle_package_input!
 using TOML, UUIDs
 
 #############
@@ -26,7 +27,7 @@ function create_temp_environment()
 end
 
 function handle_project_file(sourcepath)
-    project_file = joinpath(dirname(dirname(sourcepath)), "Project.toml")
+    project_file = joinpath(sourcepath, "Project.toml")
     isfile(project_file) || error("Project file not found: $project_file")
 
     project = Pkg.Types.read_project(project_file)
@@ -43,36 +44,78 @@ end
 function update_app_manifest(pkg)
     manifest = Pkg.Types.read_manifest(APP_MANIFEST_FILE)
     manifest.deps[pkg.uuid] = pkg
-    Pkg.Types.write_manifest(manifest, APP_MANIFEST_FILE)
+    write_manifest(manifest, APP_MANIFEST_FILE)
 end
 
 
+#=
+# Can be:
+
+# name + version -> registry -> repo + git-tree-sha1 -> pkgserver or git
+# name + branch -> registry -> repo -> git
+# url + [branch] -> git
+
+
+
+function download_package(pkg::PackageSpec, manifest, manifest_file)
+    repo_source = pkg.repo.source
+    new_download = false
+    if repo_source !== nothing
+        # TODO: Update io
+        new_download = handle_repos_add!(pkg::PackageSpec, manifest, manifest_file, nothing, stdout)
+    end
+end
+=#
+
+app_context() = Context(env=EnvCache(joinpath(APP_ENV_FOLDER, "Project.toml")))
 
 ##################
 # Main Functions #
 ##################
 
 function add(pkg::String)
-    add(PackageSpec(pkg))
+    pkg = PackageSpec(pkg)
+    add(pkg)
 end
 
 function add(pkg::PackageSpec)
-    tempenv = create_temp_environment()
-    Pkg.add(pkg)
+    handle_package_input!(pkg)
 
-    ctx = Context()
-    uuid = first(ctx.env.project.deps).second
-    pkg = ctx.env.manifest.deps[uuid]
+    ctx = app_context()
 
-    sourcepath = Base.find_package(pkg.name)
+    @assert pkg.repo !== nothing
+
+    entry = Pkg.API.manifest_info(ctx.env.manifest, pkg.uuid)
+    pkg = Pkg.Operations.update_package_add(ctx, pkg, entry, false)
+    new = handle_repo_add!(ctx, pkg)
+
+    sourcepath = source_path(ctx.env.manifest_file, pkg)
+    @show sourcepath
     project = handle_project_file(sourcepath)
 
-    pkg.apps = project.apps
+    @show project
 
-    move_environment(tempenv, pkg.name)
+    # TODO: Type stab
+    #appdeps = get(project, "appdeps", Dict())
+    # merge!(project.deps, appdeps)
+    project.path = sourcepath
+
+    projectfile = joinpath(APP_ENV_FOLDER, pkg.name, "Project.toml")
+    mkpath(dirname(projectfile))
+    write_project(project, projectfile)
+
+    # Move manifest if it exists here.
+
+
+    Pkg.activate(joinpath(APP_ENV_FOLDER, pkg.name))
+    Pkg.instantiate()
+
+    # Create the new package env.
+    entry = PackageEntry(;apps = project.apps, name = pkg.name, version = project.version, tree_hash = pkg.tree_hash, path = pkg.path, repo = pkg.repo, uuid=pkg.uuid)
     update_app_manifest(pkg)
     generate_shims_for_apps(pkg.name, project.apps, dirname(dirname(sourcepath)))
 end
+
 
 function develop(pkg::String)
     develop(PackageSpec(pkg))

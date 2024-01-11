@@ -193,7 +193,7 @@ end
 
 function manifestfile_path(env_path::String; strict=false)
     man_names = @static Base.manifest_names isa Tuple ? Base.manifest_names : Base.manifest_names()
-    for name in man_names
+    for name in (man_names..., "AppManifest.toml")
         maybe_file = joinpath(env_path, name)
         isfile(maybe_file) && return maybe_file
     end
