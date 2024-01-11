@@ -589,7 +589,7 @@ function read_package(path::String)
         pkgerror("expected a `uuid` entry in project file at `$(abspath(path))`")
     end
     name = project.name
-    pkgpath = something(project.path, dirname(path))
+    pkgpath = joinpath(dirname(path), something(project.path, ""))
     if !isfile(joinpath(pkgpath, "src", "$name.jl"))
         pkgerror("expected the file `src/$name.jl` to exist for package `$name` at `$(dirname(path))`")
     end
