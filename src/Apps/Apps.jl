@@ -1,7 +1,7 @@
 module Apps
 
 using Pkg
-using Pkg.Types: AppInfo, PackageSpec, Context, EnvCache, PackageEntry, handle_repo_add!, write_manifest, write_project
+using Pkg.Types: AppInfo, PackageSpec, Context, EnvCache, PackageEntry, handle_repo_add!, handle_repo_develop!, write_manifest, write_project
 using Pkg.Operations: print_single, source_path
 using Pkg.API: handle_package_input!
 using TOML, UUIDs
@@ -68,6 +68,34 @@ function download_package(pkg::PackageSpec, manifest, manifest_file)
 end
 =#
 
+function get_latest_version_register(pkg::PackageSpec, regs)
+    max_v = nothing
+    tree_hash = nothing
+    for reg in regs
+        if get(reg, pkg.uuid, nothing) !== nothing
+            reg_pkg = get(reg, pkg.uuid, nothing)
+            reg_pkg === nothing && continue
+            pkg_info = Registry.registry_info(reg_pkg)
+            for (version, info) in pkg_info.version_info
+                info.yanked && continue
+                if pkg.version isa VersionNumber
+                    pkg.version == version || continue
+                else
+                    version in pkg.version || continue
+                end
+                if max_v === nothing || version > max_v
+                    max_v = version
+                    tree_hash = info.git_tree_sha1
+                end
+            end
+        end
+    end
+    if max_v === nothing
+        error("Suitable package version for $(pkg.name) not found in any registries.")
+    end
+    return (max_v, tree_hash)
+end
+
 app_context() = Context(env=EnvCache(joinpath(APP_ENV_FOLDER, "Project.toml")))
 
 ##################
@@ -83,7 +111,7 @@ function add(pkg::PackageSpec)
     handle_package_input!(pkg)
 
     ctx = app_context()
-
+    new = false
     if pkg.repo.source !== nothing || pkg.repo.rev !== nothing
         entry = Pkg.API.manifest_info(ctx.env.manifest, pkg.uuid)
         pkg = Pkg.Operations.update_package_add(ctx, pkg, entry, false)
@@ -93,35 +121,9 @@ function add(pkg::PackageSpec)
         Pkg.Operations.registry_resolve!(ctx.registries, pkgs)
         Pkg.Operations.ensure_resolved(ctx, ctx.env.manifest, pkgs, registry=true)
 
-        # Get the latest version from registry...
-        max_v = nothing
-        tree_hash = nothing
-        for reg in ctx.registries
-            if get(reg, pkg.uuid, nothing) !== nothing
-                reg_pkg = get(reg, pkg.uuid, nothing)
-                reg_pkg === nothing && continue
-                pkg_info = Registry.registry_info(reg_pkg)
-                for (version, info) in pkg_info.version_info
-                    info.yanked && continue
-                    if pkg.version isa VersionNumber
-                        pkg.version == version || continue
-                    else
-                        version in pkg.version || continue
-                    end
-                    if max_v === nothing || version > max_v
-                        max_v = version
-                        tree_hash = info.git_tree_sha1
-                    end
-                end
-            end
-        end
-        if max_v === nothing
-            error("Suitable package version for $(pkg.name) not found in any registries.")
-        end
-        pkg.version = max_v
-        pkg.tree_hash = tree_hash
+        pkg.version, pkg.tree_hash = get_latest_version_register(pkg, ctx.registries)
 
-        new_apply = Pkg.Operations.download_source(ctx, pkgs)
+        new = Pkg.Operations.download_source(ctx, pkgs)
     end
 
     sourcepath = source_path(ctx.env.manifest_file, pkg)
@@ -139,39 +141,38 @@ function add(pkg::PackageSpec)
 
     # Move manifest if it exists here.
 
-
     Pkg.activate(joinpath(APP_ENV_FOLDER, pkg.name))
     Pkg.instantiate()
+
+    if new
+        # TODO: Build the package
+    end
 
     # TODO: Call build on the package if it was freshly installed?
 
     # Create the new package env.
     entry = PackageEntry(;apps = project.apps, name = pkg.name, version = project.version, tree_hash = pkg.tree_hash, path = pkg.path, repo = pkg.repo, uuid=pkg.uuid)
-    update_app_manifest(pkg)
+    update_app_manifest(entry)
     generate_shims_for_apps(pkg.name, project.apps, dirname(dirname(sourcepath)))
 end
 
 
-function develop(pkg::String)
+function develop(pkg::String; shared::Bool=true)
     develop(PackageSpec(pkg))
 end
 
-function develop(pkg::PackageSpec)
-    # TODO, this should just download the package and instantiate its environment,
-    # not create a new environment.
-    tempenv = create_temp_environment()
-    Pkg.develop(pkg)
+function develop(pkg::PackageSpec, shared::Bool=true)
+    handle_package_input!(pkg)
+    ctx = app_context()
 
-    ctx = Context()
-    uuid = first(ctx.env.project.deps).second
-    pkg = ctx.env.manifest.deps[uuid]
+    handle_repo_develop!(ctx, pkg, shared)
 
-    sourcepath = Base.find_package(pkg.name)
-    project = handle_project_file(sourcepath)
+    project = handle_project_file(pkg.path)
 
-    pkg.apps = project.apps
-    update_app_manifest(pkg)
-    generate_shims_for_apps(pkg.name, project.apps, dirname(dirname(sourcepath)))
+    # Create the new package env.
+    entry = PackageEntry(;apps = project.apps, name = pkg.name, version = project.version, tree_hash = pkg.tree_hash, path = pkg.path, repo = pkg.repo, uuid=pkg.uuid)
+    update_app_manifest(entry)
+    generate_shims_for_apps(pkg.name, project.apps, pkg.path)
 end
 
 function status()
