@@ -161,7 +161,7 @@ let
         return nothing
     end
 
-    if Base.generating_output()
+   # if Base.generating_output()
         # pkg_precompile()
-    end
+    #end
 end

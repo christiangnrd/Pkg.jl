@@ -88,6 +88,7 @@ function read_apps(apps::Dict)
     for (appname, app) in apps
         appinfo = AppInfo(appname::String,
                 app["julia_command"]::String,
+                VersionNumber(app["julia_version"]::String),
                 app)
         appinfos[appinfo.name] = appinfo
     end
@@ -319,7 +320,8 @@ function destructure(manifest::Manifest)::Dict
             new_entry["apps"] = Dict{String,Any}()
             for (appname, appinfo) in entry.apps
                 julia_command = @something appinfo.julia_command joinpath(Sys.BINDIR, "julia" * (Sys.iswindows() ? ".exe" : ""))
-                new_entry["apps"][appname] = Dict{String,Any}("julia_command" => julia_command)
+                julia_version = @something appinfo.julia_version VERSION
+                new_entry["apps"][appname] = Dict{String,Any}("julia_command" => julia_command, "julia_version" => julia_version)
             end
         end
         if manifest.manifest_format.major == 1

@@ -48,6 +48,21 @@ function update_app_manifest(pkg)
     write_manifest(manifest, APP_MANIFEST_FILE)
 end
 
+function overwrite_if_different(file, content)
+    if !isfile(file) || read(file, String) != content
+        open(file, "w") do f
+            write(f, content)
+        end
+    end
+end
+
+function update_shims_and_generate_manifest(pkg, apps, env)
+    entry = PackageEntry(;apps = project.apps, name = pkg.name, version = project.version, tree_hash = pkg.tree_hash, path = pkg.path, repo = pkg.repo, uuid=pkg.uuid)
+    generate_shims_for_apps(pkg.name, apps, env)
+    update_app_manifest(pkg.name, apps)
+end
+
+
 
 #=
 # Can be:
@@ -128,12 +143,11 @@ function add(pkg::PackageSpec)
 
     sourcepath = source_path(ctx.env.manifest_file, pkg)
     project = handle_project_file(sourcepath)
-
+    project.path = sourcepath
 
     # TODO: Type stab
-    #appdeps = get(project, "appdeps", Dict())
+    # appdeps = get(project, "appdeps", Dict())
     # merge!(project.deps, appdeps)
-    project.path = sourcepath
 
     projectfile = joinpath(APP_ENV_FOLDER, pkg.name, "Project.toml")
     mkpath(dirname(projectfile))
@@ -153,7 +167,8 @@ function add(pkg::PackageSpec)
     # Create the new package env.
     entry = PackageEntry(;apps = project.apps, name = pkg.name, version = project.version, tree_hash = pkg.tree_hash, path = pkg.path, repo = pkg.repo, uuid=pkg.uuid)
     update_app_manifest(entry)
-    generate_shims_for_apps(pkg.name, project.apps, dirname(dirname(sourcepath)))
+    generate_shims_for_apps(entry.name, entry.apps, dirname(projectfile))
+
 end
 
 
@@ -167,12 +182,20 @@ function develop(pkg::PackageSpec, shared::Bool=true)
 
     handle_repo_develop!(ctx, pkg, shared)
 
+
     project = handle_project_file(pkg.path)
 
-    # Create the new package env.
+    # Seems like the `.repo.source` field is not cleared.
+    # At least repo-url is still in the manifest after doing a dev with a path
+    # Figure out why for normal dev this is not needed.
+    # XXX: Why needed?
+    if pkg.path !== nothing
+        pkg.repo.source = nothing
+    end
+
     entry = PackageEntry(;apps = project.apps, name = pkg.name, version = project.version, tree_hash = pkg.tree_hash, path = pkg.path, repo = pkg.repo, uuid=pkg.uuid)
     update_app_manifest(entry)
-    generate_shims_for_apps(pkg.name, project.apps, pkg.path)
+    generate_shims_for_apps(entry.name, entry.apps, entry.path)
 end
 
 function status()
@@ -250,9 +273,7 @@ function generate_shim(app::AppInfo, pkgname; julia_executable_path::String=join
     else
         bash_shim(pkgname, julia_executable_path, env)
     end
-    open(filename, "w") do f
-        write(f, content)
-    end
+    overwrite_if_different(filename, content)
     if Sys.isunix()
         chmod(filename, 0o755)
     end

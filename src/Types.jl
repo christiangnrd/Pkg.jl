@@ -246,6 +246,7 @@ Base.hash(t::Compat, h::UInt) = hash(t.val, h)
 struct AppInfo
     name::String
     julia_command::Union{String, Nothing}
+    julia_version::Union{VersionNumber, Nothing}
     other::Dict{String,Any}
 end
 Base.@kwdef mutable struct Project
