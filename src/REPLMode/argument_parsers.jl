@@ -204,6 +204,11 @@ function parse_registry(word::AbstractString; add=false)::RegistrySpec
     return registry
 end
 
+function parse_app(raw_args::Vector{QString}, options)
+    return parse_package(raw_args, options; add_or_dev=true)
+end
+
+
 #
 # # Other
 #

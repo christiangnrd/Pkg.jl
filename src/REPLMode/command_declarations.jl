@@ -556,4 +556,19 @@ pkg> registry status
 """,
 ]
 ], #registry
+"app" => CommandDeclaration[
+PSA[:name => "add",
+    :api => Apps.add,
+    :should_splat => false,
+    :arg_count => 0 => Inf,
+    :arg_parser => parse_app,
+    :description => "add app",
+    :help => md"""
+    app add pkg
+
+lala
+```
+""",
+],
+] # app
 ] #command_declarations

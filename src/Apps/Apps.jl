@@ -56,14 +56,6 @@ function overwrite_if_different(file, content)
     end
 end
 
-function update_shims_and_generate_manifest(pkg, apps, env)
-    entry = PackageEntry(;apps = project.apps, name = pkg.name, version = project.version, tree_hash = pkg.tree_hash, path = pkg.path, repo = pkg.repo, uuid=pkg.uuid)
-    generate_shims_for_apps(pkg.name, apps, env)
-    update_app_manifest(pkg.name, apps)
-end
-
-
-
 #=
 # Can be:
 
@@ -120,6 +112,12 @@ app_context() = Context(env=EnvCache(joinpath(APP_ENV_FOLDER, "Project.toml")))
 function add(pkg::String)
     pkg = PackageSpec(pkg)
     add(pkg)
+end
+
+function add(pkg::Vector{PackageSpec})
+    for p in pkg
+        add(p)
+    end
 end
 
 function add(pkg::PackageSpec)
@@ -213,6 +211,23 @@ function status()
         end
         for (appname, appinfo) in info.apps
             printstyled("  $(appname) $(appinfo.julia_command) \n", color=:green)
+        end
+    end
+end
+
+function precompile(pkg::Union{Nothing, String}=nothing)
+    ctx = app_context()
+    manifest = Pkg.Types.read_manifest(joinpath(APP_ENV_FOLDER, "AppManifest.toml"))
+    deps = Pkg.Operations.load_manifest_deps(manifest)
+    for dep in deps
+        # TODO: Parallel app compilation..?
+        info = manifest.deps[dep.uuid]
+        if pkg !== nothing && info.name !== pkg
+            continue
+        end
+        Pkg.activate(joinpath(APP_ENV_FOLDER, info.name)) do
+            @info "Precompiling $(info.name)..."
+            Pkg.precompile()
         end
     end
 end
