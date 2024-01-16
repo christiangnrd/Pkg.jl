@@ -573,6 +573,7 @@ PSA[:name => "add",
     :should_splat => false,
     :arg_count => 0 => Inf,
     :arg_parser => parse_app_add,
+    :completions => complete_add_dev,
     :description => "add app",
     :help => md"""
     app add pkg
@@ -587,6 +588,7 @@ PSA[:name => "remove",
     :should_splat => false,
     :arg_count => 0 => Inf,
     :arg_parser => parse_package,
+    :completions => complete_installed_apps,
     :description => "remove packages from project or manifest",
     :help => md"""
     app [rm|remove] pkg ...
@@ -595,5 +597,29 @@ PSA[:name => "remove",
     Remove the apps for package `pkg`.
     """
 ],
-] # app
+PSA[:name => "develop",
+    :short_name => "dev",
+    :api => Apps.develop,
+    :should_splat => false,
+    :arg_count => 1 => Inf,
+    :arg_parser => (x,y) -> parse_package(x,y; add_or_dev=true),
+    :completions => complete_add_dev,
+    :description => "develop a package and install all the apps in it",
+    :help => md"""
+    app [dev|develop] pkg[=uuid] ...
+    app [dev|develop] path
+
+Same as `develop` but also installs all the apps in the package.
+This allows one to edit their app and have the changes immediately be reflected in the app.
+
+**Examples**
+```jl
+pkg> app develop Example
+pkg> app develop https://github.com/JuliaLang/Example.jl
+pkg> app develop ~/mypackages/Example
+pkg> app develop --local Example
+```
+"""
+], # app
+]
 ] #command_declarations

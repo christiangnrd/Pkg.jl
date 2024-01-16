@@ -171,15 +171,15 @@ function add(pkg::PackageSpec)
 end
 
 
-function develop(pkg::String; shared::Bool=true)
+function develop(pkg::String)
     develop(PackageSpec(pkg))
 end
 
-function develop(pkg::PackageSpec, shared::Bool=true)
+function develop(pkg::PackageSpec)
     handle_package_input!(pkg)
     ctx = app_context()
 
-    handle_repo_develop!(ctx, pkg, shared)
+    handle_repo_develop!(ctx, pkg, #=shared =# true)
 
 
     project = handle_project_file(pkg.path)
