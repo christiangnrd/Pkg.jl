@@ -563,6 +563,7 @@ pkg> registry status
     :should_splat => false,
     :arg_count => 0 => Inf,
     :arg_parser => parse_package,
+    :completions => complete_installed_apps,
     :description => "show status of apps",
     :help => md"""
     show status of apps
