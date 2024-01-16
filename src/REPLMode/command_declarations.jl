@@ -557,18 +557,43 @@ pkg> registry status
 ]
 ], #registry
 "app" => CommandDeclaration[
+    PSA[:name => "status",
+    :short_name => "st",
+    :api => Apps.status,
+    :should_splat => false,
+    :arg_count => 0 => Inf,
+    :arg_parser => parse_package,
+    :description => "show status of apps",
+    :help => md"""
+    show status of apps
+    """
+],
 PSA[:name => "add",
     :api => Apps.add,
     :should_splat => false,
     :arg_count => 0 => Inf,
-    :arg_parser => parse_app,
+    :arg_parser => parse_app_add,
     :description => "add app",
     :help => md"""
     app add pkg
 
-lala
+Adds the apps for packages `pkg...` or apps `app...`.
 ```
 """,
+],
+PSA[:name => "remove",
+    :short_name => "rm",
+    :api => Apps.rm,
+    :should_splat => false,
+    :arg_count => 0 => Inf,
+    :arg_parser => parse_package,
+    :description => "remove packages from project or manifest",
+    :help => md"""
+    app [rm|remove] pkg ...
+    app [rm|remove] app ...
+
+    Remove the apps for package `pkg`.
+    """
 ],
 ] # app
 ] #command_declarations

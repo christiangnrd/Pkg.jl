@@ -1,7 +1,8 @@
 module Apps
 
 using Pkg
-using Pkg.Types: AppInfo, PackageSpec, Context, EnvCache, PackageEntry, handle_repo_add!, handle_repo_develop!, write_manifest, write_project
+using Pkg.Types: AppInfo, PackageSpec, Context, EnvCache, PackageEntry, handle_repo_add!, handle_repo_develop!, write_manifest, write_project,
+                 pkgerror
 using Pkg.Operations: print_single, source_path
 using Pkg.API: handle_package_input!
 using TOML, UUIDs
@@ -196,11 +197,37 @@ function develop(pkg::PackageSpec, shared::Bool=true)
     generate_shims_for_apps(entry.name, entry.apps, entry.path)
 end
 
-function status()
+function status(pkgs_or_apps::Vector)
+    if isempty(pkgs_or_apps)
+        status()
+    else
+        for pkg_or_app in pkgs_or_apps
+            if pkg_or_app isa String
+                pkg_or_app = PackageSpec(pkg_or_app)
+            end
+            status(pkg_or_app)
+        end
+    end
+end
+
+function status(pkg_or_app::Union{PackageSpec, Nothing}=nothing)
+    pkg_or_app = pkg_or_app === nothing ? nothing : pkg_or_app.name
     manifest = Pkg.Types.read_manifest(joinpath(APP_ENV_FOLDER, "AppManifest.toml"))
     deps = Pkg.Operations.load_manifest_deps(manifest)
+
+    is_pkg = pkg_or_app !== nothing && any(dep -> dep.name == pkg_or_app, values(manifest.deps))
+
     for dep in deps
         info = manifest.deps[dep.uuid]
+        if is_pkg && dep.name !== pkg_or_app
+            continue
+        end
+        if !is_pkg && pkg_or_app !== nothing
+            if !(pkg_or_app in keys(info.apps))
+                continue
+            end
+        end
+
         printstyled("[", string(dep.uuid)[1:8], "] "; color = :light_black)
         print_single(stdout, dep)
         single_app = length(info.apps) == 1
@@ -210,13 +237,15 @@ function status()
             print(":")
         end
         for (appname, appinfo) in info.apps
+            if !is_pkg && pkg_or_app !== nothing && appname !== pkg_or_app
+                continue
+            end
             printstyled("  $(appname) $(appinfo.julia_command) \n", color=:green)
         end
     end
 end
 
 function precompile(pkg::Union{Nothing, String}=nothing)
-    ctx = app_context()
     manifest = Pkg.Types.read_manifest(joinpath(APP_ENV_FOLDER, "AppManifest.toml"))
     deps = Pkg.Operations.load_manifest_deps(manifest)
     for dep in deps
@@ -232,11 +261,30 @@ function precompile(pkg::Union{Nothing, String}=nothing)
     end
 end
 
-function free()
-
+function require_not_empty(pkgs, f::Symbol)
+    pkgs === nothing && return
+    isempty(pkgs) && pkgerror("app $f requires at least one package")
 end
 
-function rm(pkg_or_app)
+function rm(pkgs_or_apps::Union{Vector, Nothing})
+    if pkgs_or_apps === nothing
+        rm(nothing)
+    else
+        for pkg_or_app in pkgs_or_apps
+            if pkg_or_app isa String
+                pkg_or_app = PackageSpec(pkg_or_app)
+            end
+            rm(pkg_or_app)
+        end
+    end
+end
+
+function rm(pkg_or_app::Union{PackageSpec, Nothing}=nothing)
+    pkg_or_app = pkg_or_app === nothing ? nothing : pkg_or_app.name
+
+    require_not_empty(pkg_or_app, :rm)
+
+    @show pkg_or_app
     manifest = Pkg.Types.read_manifest(joinpath(APP_ENV_FOLDER, "AppManifest.toml"))
     dep_idx = findfirst(dep -> dep.name == pkg_or_app, manifest.deps)
     if dep_idx !== nothing
