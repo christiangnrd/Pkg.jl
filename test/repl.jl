@@ -125,6 +125,7 @@ temp_pkg_dir(;rm=false) do project_path; cd(project_path) do;
         pkg"develop Example"
         pkg"develop Example,PackageCompiler"
         pkg"develop Example PackageCompiler"
+        pkg"develop 🧰"
 
         # Copy the manifest + project and see that we can resolve it in a new environment
         # and get all the packages installed
