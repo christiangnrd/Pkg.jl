@@ -130,7 +130,7 @@ function parse_package_args(args::Vector{PackageToken}; add_or_dev=false)::Vecto
 end
 
 let uuid = raw"(?i)[0-9a-z]{8}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{12}(?-i)",
-    name = raw"(\w+)(?:\.jl)?"
+    name = raw"(.+)(?:\.jl)?"
     global const name_re = Regex("^$name\$")
     global const uuid_re = Regex("^$uuid\$")
     global const name_uuid_re = Regex("^$name\\s*=\\s*($uuid)\$")
@@ -155,15 +155,16 @@ function parse_package_identifier(pkg_id::PackageIdentifier; add_or_develop=fals
     end
     if occursin(uuid_re, word)
         return PackageSpec(;uuid=UUID(word))
-    elseif occursin(name_re, word)
-        m = match(name_re, word)
-        return PackageSpec(String(something(m.captures[1])))
-    elseif occursin(name_uuid_re, word)
-        m = match(name_uuid_re, word)
-        return PackageSpec(String(something(m.captures[1])), UUID(something(m.captures[2])))
-    else
-        pkgerror("Unable to parse `$word` as a package.")
     end
+    if occursin(name_re, word)
+        m = match(name_re, word)
+        Base.isidentifier(m.captures[1]) && return PackageSpec(String(something(m.captures[1])))
+    end
+    if occursin(name_uuid_re, word)
+        m = match(name_uuid_re, word)
+        Base.isidentifier(m.captures[1]) && return PackageSpec(String(something(m.captures[1])), UUID(something(m.captures[2])))
+    end
+    pkgerror("Unable to parse `$word` as a package.")
 end
 
 ################

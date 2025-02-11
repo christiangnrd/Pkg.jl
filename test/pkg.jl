@@ -187,6 +187,12 @@ temp_pkg_dir() do project_path
         @test !isinstalled(TEST_PKG)
         pkgdir = joinpath(Pkg.depots1(), "packages")
 
+        # unicode package name
+        Pkg.add(path="🧰")
+        @test isinstalled("🧰")
+        Pkg.rm("🧰")
+        @test !isinstalled("🧰")
+
         # Test to ensure that with a long enough collect_delay, nothing gets reaped
         Pkg.gc(;collect_delay=Day(1000))
         @test !isempty(readdir(pkgdir))
@@ -203,6 +209,8 @@ temp_pkg_dir() do project_path
         @test !isempty(readdir(clonedir))
         Pkg.gc(;collect_delay=Second(0))
         @test isempty(readdir(clonedir))
+
+
     end
 
     @testset "package with wrong UUID" begin
